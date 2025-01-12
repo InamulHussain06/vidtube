@@ -18,8 +18,10 @@ const errorHandler = (err, req, res, next) => {
   const response={
     ...error,
     message:error.message,
-    // ...(process.env.)
+    ...(process.env.NODE_ENV==='Development'?{stack:error.stack}:{})
   }
+
+  return res.statusCode(error.statusCode).json(response)
 
 
 };

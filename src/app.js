@@ -31,7 +31,7 @@ app.use(cookieParser());
 
 //routes
 app.use("/api/v1/healthcheck", healthCheckRouter);
-app.use("api/v1/users", userRouter);
-app.use(errorHandler);
+app.use("/api/v1/users", userRouter);
+// app.use(errorHandler);
 
 export { app };

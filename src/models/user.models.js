@@ -1,5 +1,5 @@
 import mongoose, { Schema } from "mongoose";
-import bcrpyt from "bcrypt";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 const userSchema = new Schema(
@@ -54,14 +54,14 @@ const userSchema = new Schema(
 userSchema.pre("save", async function (next) {
   //next is  a middleware  .next is  a way to pass on your request from one middlware to the next middleware whereever it need to go
 
-  if (!this.modified("password")) return next();
-  this.password = bcrpyt.hash(this.password, 10);
+  if (!this.isModified("password")) return next();
+  this.password = bcrypt.hash(this.password, 10);
 
   next();
 });
 
 userSchema.methods.isPasswordCorrect = async function (password) {
-  return await bcrpyt.compare(password, this.password);
+  return await bcrypt.compare(password, this.password);
 };
 
 userSchema.methods.generateAccessToken = function () {
