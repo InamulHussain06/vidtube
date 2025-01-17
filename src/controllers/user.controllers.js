@@ -7,6 +7,30 @@ import {
   uploadOnCloudinary,
   deletefromCloudinary,
 } from "../utils/cloudinary.js";
+import jwt from "jsonwebtoken";
+
+const generateAccessandRefreshToken = async (userId) => {
+  try {
+    const user = await User.findById(userId);
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    const accessToken = user.generateAccessToken();
+    const refreshToken = user.generateRefreshToken();
+
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false });
+
+    return { accessToken, refreshToken };
+  } catch (error) {
+    throw new ApiError(
+      500,
+      "Something went wrong while generating access and refresh tokens"
+    );
+  }
+};
 
 const registerUser = asyncHandler(async (req, res) => {
   const { fullName, username, email, password } = req.body;
@@ -94,9 +118,127 @@ const registerUser = asyncHandler(async (req, res) => {
 
     throw new ApiError(
       500,
-      "Something went wrong while creating a User in the Database and Images were deleted"
+      "Something went wrong while creating a User in the Database and images were deleted"
     );
   }
 });
 
-export { registerUser };
+const loginHandler = asyncHandler(async (req, res) => {
+  const { userName, email, password } = req.body;
+
+  //validation email
+  if (!email) {
+    throw new ApiError(400, "Email is required");
+  }
+
+  //getting User data from the DB
+  const user = await User.findOne({
+    $or: [{ userName }, { email }],
+  });
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  //Validating password or checking password from user and DB
+  const isValidPassword = await user.isPasswordCorrect(password);
+
+  if (!isValidPassword) {
+    throw new ApiError(401, "Invalid credentials");
+  }
+
+  const { refreshToken, accessToken } = await generateAccessandRefreshToken(
+    user._id
+  );
+
+  const loggedInUser = await User.findById(user._id).select(
+    "-password -refreshToken"
+  );
+
+  if (!loggedInUser) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const options = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  };
+
+  return res
+    .status(200)
+    .cookies("accessToken", accessToken, options)
+    .cookies("refreshToken", refreshToken, options)
+    .json(
+      new ApiResponse(
+        200,
+        {
+          user: loggedInUser,
+          accessToken,
+          refreshToken,
+        },
+        "User logged in successfully"
+      )
+    );
+});
+
+const refreshAccessToken = asyncHandler(async (req, res) => {
+  // const { refreshToken } = req.body;
+
+  const incomingRefreshToken =
+    req.cookies.refreshToken || req.body?.refreshToken;
+
+  if (!incomingRefreshToken) {
+    throw new ApiError(401, "Refresh token is required");
+  }
+
+  try {
+    const decodedToken = jwt.verify(
+      incomingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+    );
+
+    const user = await User.findById(decodedToken?._id);
+
+    if (!user) {
+      throw new ApiError(404, "Invalid refresh token");
+    }
+
+    if (user?.refreshToken !== incomingRefreshToken) {
+      throw new ApiError(401, "Invalid refresh token");
+    }
+
+    const options = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+    };
+
+    const { accessToken, refreshAccessToken: updatedRefreshToken } =
+      await generateAccessandRefreshToken(user?._id);
+
+    return res
+      .status(200)
+      .cookies("accessToken", accessToken, options)
+      .cookies("refreshToken", updatedRefreshToken, options)
+      .json(
+        new ApiResponse(
+          200,
+          {
+            accessToken,
+            refreshToken: updatedRefreshToken,
+          },
+          "Access Token refreshed successfully"
+        )
+      );
+  } catch (error) {
+    throw new ApiError(
+      500,
+      "Something went wrong while refreshing access token"
+    );
+  }
+});
+
+const logoutUser = asyncHandler(async (refreshAccessToken, res) => {
+  await User.findByIdAndUpdate(req.user._id);
+});
+
+export { registerUser, loginHandler, refreshAccessToken };
